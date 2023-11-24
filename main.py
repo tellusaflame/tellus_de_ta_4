@@ -1,8 +1,5 @@
-import sys
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, avg, to_date
-from pyspark.sql.types import *
-
+from pyspark.sql.functions import col, avg, to_date, regexp_replace, split
 
 def main():
     spark = SparkSession.builder \
@@ -10,34 +7,30 @@ def main():
         .appName('PySpark_de_ta_4') \
         .getOrCreate()
 
-    schema = StructType() \
-        .add("bookID", IntegerType(), True) \
-        .add("title", StringType(), True) \
-        .add("authors", StringType(), True) \
-        .add("average_rating", DoubleType(), True) \
-        .add("isbn", StringType(), True) \
-        .add("isbn13", LongType(), True) \
-        .add("language_code", StringType(), True) \
-        .add("num_pages", IntegerType(), True) \
-        .add("ratings_count", IntegerType(), True) \
-        .add("text_reviews_count", IntegerType(), True) \
-        .add("publication_date", StringType(), True) \
-        .add("publisher", StringType(), True)
-
     # 1. Прочитать csv файл: book.csv
-    df = spark.read.format("csv") \
-        .option("header", True) \
-        .option("sep", ",") \
-        .option("enforceSchema", True) \
-        .schema(schema) \
-        .load("books.csv")
+    df = spark.read.text("books.csv")
+
+    header = df.first()[0]
+    df = df.filter(~col("value").contains(header)) \
+        .withColumn("value", regexp_replace("value", ",  ", ",")) \
+        .withColumn("value", regexp_replace("value", ", ", ". "))
 
     spark.sql("set spark.sql.legacy.timeParserPolicy=LEGACY")
-
-    df = df.withColumn("publication_date", to_date(col("publication_date"),"MM/dd/yyyy") )
-
-    # Показать строки с невалидными данными
-    df.filter(col("average_rating").isNull()).show()
+    split_col = split(df.value, '\\,', )
+    df = (df.withColumn("bookID", split_col.getItem(0).cast("Integer")) \
+        .withColumn("title", split_col.getItem(1)) \
+        .withColumn("authors", split_col.getItem(2)) \
+        .withColumn("average_rating", split_col.getItem(3).cast("Double")) \
+        .withColumn("isbn", split_col.getItem(4)) \
+        .withColumn("isbn13", split_col.getItem(5).cast("Long")) \
+        .withColumn("language_code", split_col.getItem(6)) \
+        .withColumn("num_pages", split_col.getItem(7).cast("Integer")) \
+        .withColumn("ratings_count", split_col.getItem(8).cast("Integer")) \
+        .withColumn("text_reviews_count", split_col.getItem(9).cast("Integer")) \
+        .withColumn("publication_date", split_col.getItem(10)) \
+        .withColumn("publisher", split_col.getItem(11)) \
+        .withColumn("publication_date", to_date(col("publication_date"), "MM/dd/yyyy")) \
+        .drop("value"))
 
     # 2. Вывести схему для dataframe полученного из п.1
     df.printSchema()
@@ -62,7 +55,6 @@ def main():
     print(f'Количество книг со ср. рейтингом 2-3: {df.filter((col("average_rating") >= 2) & (col("average_rating") <= 3)).count()}')
     print(f'Количество книг со ср. рейтингом 3-4: {df.filter((col("average_rating") >= 3) & (col("average_rating") <= 4)).count()}')
     print(f'Количество книг со ср. рейтингом 4-5: {df.filter((col("average_rating") >= 4) & (col("average_rating") <= 5)).count()}')
-
 
 if __name__ == "__main__":
     main()
